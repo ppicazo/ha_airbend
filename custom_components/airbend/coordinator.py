@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 import logging
 from typing import Any
@@ -10,7 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -107,17 +108,39 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         self._applied_at: datetime | None = None
         self._last_command: FanCommand | None = None
         self._last_command_at: datetime | None = None
+        self._command_task: asyncio.Task[None] | None = None
+        self.fan_error: str | None = None
 
     async def _async_update_data(self) -> AirbendData:
+        try:
+            return self._evaluate()
+        except Exception as err:
+            _LOGGER.exception("Airbend could not evaluate the attic")
+            return AirbendData(
+                outdoor=Reading(None, []),
+                attic=Reading(None, []),
+                indoor=Reading(None, []),
+                decision=Decision(
+                    season=Season.UNKNOWN,
+                    speed=FanSpeed.OFF,
+                    unconstrained_speed=FanSpeed.OFF,
+                    reason=f"Airbend hit an error while reading sensors: {err}",
+                    safety_bypass=False,
+                ),
+                enabled=self.enabled,
+                fan_available=False,
+            )
+
+    def _evaluate(self) -> AirbendData:
         options = self.entry.options
         stale = timedelta(minutes=int(options.get(CONF_STALE_MINUTES, DEFAULT_STALE_MINUTES)))
-        outdoor = self._average(list(options.get(CONF_OUTDOOR_SENSORS, [])), stale)
-        attic_ids = list(options.get(CONF_ATTIC_SENSORS, []))
+        outdoor = self._average(self._entity_list(options, CONF_OUTDOOR_SENSORS), stale)
+        attic_ids = self._entity_list(options, CONF_ATTIC_SENSORS)
         fan_temp = options.get(CONF_FAN_TEMPERATURE)
         if fan_temp and fan_temp not in attic_ids:
             attic_ids.append(fan_temp)
         attic = self._average(attic_ids, stale)
-        indoor = self._average(list(options.get(CONF_INDOOR_SENSORS, [])), stale)
+        indoor = self._average(self._entity_list(options, CONF_INDOOR_SENSORS), stale)
         settings = _settings_from_options(options)
         now = dt_util.utcnow()
         decision = decide(
@@ -141,7 +164,7 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         )
 
         if self.enabled and self.control_ready and fan_available:
-            await self._async_command_fan(decision, now)
+            self._schedule_command(decision)
         elif self.enabled and self.control_ready and not fan_available:
             _LOGGER.warning("Fan %s is unavailable; Airbend left it alone", fan_id)
 
@@ -162,11 +185,36 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         self.enabled = enabled
         self.hass.async_create_task(self.async_request_refresh())
 
+    def _schedule_command(self, decision: Decision) -> None:
+        if self._command_task is not None and not self._command_task.done():
+            return
+        self._command_task = self.hass.async_create_task(self._async_safe_command(decision))
+
+    async def _async_safe_command(self, decision: Decision) -> None:
+        try:
+            await self._async_command_fan(decision, dt_util.utcnow())
+        except Exception as err:
+            _LOGGER.exception("Airbend could not command the fan")
+            self.fan_error = str(err)
+        else:
+            if self.fan_error is None:
+                return
+            self.fan_error = None
+        if self.data is not None:
+            self.async_set_updated_data(self.data)
+
+    @staticmethod
+    def _entity_list(options: dict[str, Any], key: str) -> list[str]:
+        configured = options.get(key) or []
+        if isinstance(configured, str):
+            return [configured]
+        return list(configured)
+
     def watched_entities(self) -> list[str]:
         options = self.entry.options
         entities: list[str] = []
         for key in (CONF_OUTDOOR_SENSORS, CONF_ATTIC_SENSORS, CONF_INDOOR_SENSORS):
-            entities.extend(options.get(key, []))
+            entities.extend(self._entity_list(options, key))
         for key in (CONF_FAN_TEMPERATURE, CONF_FAN, CONF_FAN_MODE):
             if options.get(key):
                 entities.append(options[key])
@@ -188,7 +236,10 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
             state = self.hass.states.get(entity_id)
             if state is None or state.state in {STATE_UNAVAILABLE, STATE_UNKNOWN}:
                 continue
-            age = now - state.last_updated
+            try:
+                age = now - state.last_updated
+            except TypeError:
+                age = timedelta(0)
             if age > stale_after:
                 continue
             try:
@@ -235,13 +286,7 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
             command.label,
             decision.reason,
         )
-        try:
-            await self.hass.services.async_call(
-                "fan", service, service_data, blocking=True
-            )
-        except Exception as err:
-            self._last_command = None
-            raise UpdateFailed(f"Could not command {fan_id}: {err}") from err
+        await self.hass.services.async_call("fan", service, service_data, blocking=True)
 
         self._last_command = command
         self._last_command_at = now

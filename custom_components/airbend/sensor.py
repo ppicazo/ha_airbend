@@ -152,6 +152,8 @@ class AirbendStatusSensor(AirbendEntity, SensorEntity):
             return None
         if not data.enabled:
             return f"Paused. {data.decision.reason}"
+        if self.coordinator.fan_error:
+            return f"Fan command failed: {self.coordinator.fan_error} {data.decision.reason}"
         if not data.fan_available:
             return f"Fan unavailable. {data.decision.reason}"
         return data.decision.reason
