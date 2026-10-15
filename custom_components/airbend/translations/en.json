@@ -1,0 +1,130 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Attic ventilation sensors",
+        "description": "Pick the temperature sensors to average and the QuietCool fan to control. The fan's own temperature is included in the attic average. If the fan has a mode select, point Airbend at it so the fan's built-in thermostat does not fight this controller.",
+        "data": {
+          "outdoor_sensors": "Outdoor temperature sensors",
+          "attic_sensors": "Attic temperature sensors",
+          "indoor_sensors": "Indoor temperature sensors",
+          "fan": "Attic fan",
+          "fan_temperature": "Fan temperature sensor",
+          "fan_mode": "Fan mode select",
+          "manual_mode": "Mode to select before taking control"
+        }
+      },
+      "behavior": {
+        "title": "When to ventilate",
+        "description": "Temperatures use {unit}. Summer starts when the indoor average rises to the comfort line, and winter starts after it falls by the hysteresis. In summer the fan runs when the attic is warmer than the house and warmer than outside by at least the minimum difference.",
+        "data": {
+          "summer_indoor_c": "Target indoor temperature",
+          "hysteresis_c": "Hysteresis before switching back to winter",
+          "min_delta_c": "Attic must be this much warmer than outside",
+          "safety_max_c": "Always ventilate above this attic temperature",
+          "summer_low_c": "Low speed when attic reaches",
+          "summer_medium_c": "Medium speed when attic reaches",
+          "summer_high_c": "High speed when attic reaches",
+          "winter_ceiling_c": "Winter buffer limit (start ventilating)",
+          "winter_high_c": "Winter high speed",
+          "ice_dam_outdoor_max_c": "Ice-dam guard: outdoor at or below",
+          "ice_dam_attic_min_c": "Ice-dam guard: attic at or above",
+          "ice_dam_enabled": "Cool the roof deck when it could melt snow",
+          "min_on_minutes": "Minimum minutes the fan stays on",
+          "min_off_minutes": "Minimum minutes the fan stays off",
+          "stale_minutes": "Ignore sensor readings older than"
+        }
+      }
+    },
+    "error": {
+      "threshold_order": "Each speed step has to be warmer than the one below it, and the safety limit has to be the hottest.",
+      "ice_dam_order": "The ice-dam attic temperature has to be below the winter buffer limit, or the guard never gets a chance to run."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Attic ventilation sensors",
+        "description": "Sensors are averaged. The fan temperature is added to the attic average.",
+        "data": {
+          "outdoor_sensors": "Outdoor temperature sensors",
+          "attic_sensors": "Attic temperature sensors",
+          "indoor_sensors": "Indoor temperature sensors",
+          "fan": "Attic fan",
+          "fan_temperature": "Fan temperature sensor",
+          "fan_mode": "Fan mode select",
+          "manual_mode": "Mode to select before taking control"
+        }
+      },
+      "behavior": {
+        "title": "When to ventilate",
+        "description": "Temperatures use {unit}.",
+        "data": {
+          "summer_indoor_c": "Target indoor temperature",
+          "hysteresis_c": "Hysteresis before switching back to winter",
+          "min_delta_c": "Attic must be this much warmer than outside",
+          "safety_max_c": "Always ventilate above this attic temperature",
+          "summer_low_c": "Low speed when attic reaches",
+          "summer_medium_c": "Medium speed when attic reaches",
+          "summer_high_c": "High speed when attic reaches",
+          "winter_ceiling_c": "Winter buffer limit (start ventilating)",
+          "winter_high_c": "Winter high speed",
+          "ice_dam_outdoor_max_c": "Ice-dam guard: outdoor at or below",
+          "ice_dam_attic_min_c": "Ice-dam guard: attic at or above",
+          "ice_dam_enabled": "Cool the roof deck when it could melt snow",
+          "min_on_minutes": "Minimum minutes the fan stays on",
+          "min_off_minutes": "Minimum minutes the fan stays off",
+          "stale_minutes": "Ignore sensor readings older than"
+        }
+      }
+    },
+    "error": {
+      "threshold_order": "Each speed step has to be warmer than the one below it, and the safety limit has to be the hottest.",
+      "ice_dam_order": "The ice-dam attic temperature has to be below the winter buffer limit, or the guard never gets a chance to run."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "outdoor_temperature": {
+        "name": "Outdoor temperature"
+      },
+      "attic_temperature": {
+        "name": "Attic temperature"
+      },
+      "indoor_temperature": {
+        "name": "Indoor temperature"
+      },
+      "season": {
+        "name": "Season",
+        "state": {
+          "summer": "Summer",
+          "winter": "Winter",
+          "unknown": "Unknown"
+        }
+      },
+      "target_speed": {
+        "name": "Target speed",
+        "state": {
+          "off": "Off",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High",
+          "paused": "Paused"
+        }
+      },
+      "status": {
+        "name": "Status"
+      }
+    },
+    "binary_sensor": {
+      "ventilating": {
+        "name": "Ventilating"
+      }
+    },
+    "switch": {
+      "automatic": {
+        "name": "Automatic control"
+      }
+    }
+  }
+}
