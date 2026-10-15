@@ -109,6 +109,7 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         self._last_command: FanCommand | None = None
         self._last_command_at: datetime | None = None
         self._command_task: asyncio.Task[None] | None = None
+        self._manual_mode_retry_at: datetime | None = None
         self.fan_error: str | None = None
 
     async def _async_update_data(self) -> AirbendData:
@@ -191,15 +192,12 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         self._command_task = self.hass.async_create_task(self._async_safe_command(decision))
 
     async def _async_safe_command(self, decision: Decision) -> None:
+        self.fan_error = None
         try:
             await self._async_command_fan(decision, dt_util.utcnow())
         except Exception as err:
             _LOGGER.exception("Airbend could not command the fan")
             self.fan_error = str(err)
-        else:
-            if self.fan_error is None:
-                return
-            self.fan_error = None
         if self.data is not None:
             self.async_set_updated_data(self.data)
 
@@ -293,24 +291,47 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         self._remember_applied(decision.speed, now, changed=True)
 
     async def _async_hold_manual_mode(self) -> None:
-        """Keep QuietCool (or similar) out of its own thermostat mode."""
+        """Keep QuietCool (or similar) out of its own thermostat mode.
+
+        A failure here must not escape. The installed 0.1.0 build called this
+        from the sensor update, so a rejected mode change marked every entity
+        unavailable.
+        """
 
         mode_entity = self.entry.options.get(CONF_FAN_MODE)
         if not mode_entity:
             return
-        target = self.entry.options.get(CONF_MANUAL_MODE, DEFAULT_MANUAL_MODE)
-        state = self.hass.states.get(mode_entity)
-        if state is None or state.state == target or state.state in {
-            STATE_UNAVAILABLE,
-            STATE_UNKNOWN,
-        }:
+        now = dt_util.utcnow()
+        if self._manual_mode_retry_at is not None and now < self._manual_mode_retry_at:
             return
-        await self.hass.services.async_call(
-            "select",
-            "select_option",
-            {"entity_id": mode_entity, "option": target},
-            blocking=True,
-        )
+        target = str(self.entry.options.get(CONF_MANUAL_MODE) or DEFAULT_MANUAL_MODE)
+        state = self.hass.states.get(mode_entity)
+        if state is None or state.state in {STATE_UNAVAILABLE, STATE_UNKNOWN}:
+            return
+        if state.domain != "select":
+            self.fan_error = f"{mode_entity} is not a mode select"
+            self._manual_mode_retry_at = now + timedelta(minutes=5)
+            return
+        option = _matching_option(state.attributes.get("options"), target)
+        if option is None:
+            self.fan_error = f"{mode_entity} has no {target!r} option"
+            self._manual_mode_retry_at = now + timedelta(minutes=5)
+            return
+        if state.state == option:
+            return
+        try:
+            await self.hass.services.async_call(
+                "select",
+                "select_option",
+                {"entity_id": mode_entity, "option": option},
+                blocking=True,
+            )
+        except Exception as err:
+            _LOGGER.warning(
+                "Airbend could not set %s to %s: %s", mode_entity, option, err
+            )
+            self.fan_error = f"Could not set {mode_entity} to {option}: {err}"
+            self._manual_mode_retry_at = now + timedelta(minutes=2)
 
     def _command_matches_state(self, command: FanCommand, state: Any) -> bool:
         if state is None:
@@ -334,6 +355,17 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
             if speed is not self._applied_speed or self._applied_at is None:
                 self._applied_at = now
             self._applied_speed = speed
+
+
+def _matching_option(options: Any, target: str) -> str | None:
+    if not isinstance(options, list):
+        return None
+    folded = target.casefold()
+    for option in options:
+        text = str(option)
+        if text.casefold() == folded:
+            return text
+    return None
 
 
 def _settings_from_options(options: dict[str, Any]) -> ControlSettings:
