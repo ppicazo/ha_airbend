@@ -53,6 +53,8 @@ async def async_setup_entry(
             AirbendSeasonSensor(coordinator),
             AirbendTargetSensor(coordinator),
             AirbendStatusSensor(coordinator),
+            AirbendForecastSensor(coordinator, "forecast_high", max),
+            AirbendForecastSensor(coordinator, "forecast_low", min),
         ]
     )
 
@@ -94,6 +96,31 @@ class AirbendTemperatureSensor(AirbendEntity, SensorEntity):
         if data is None:
             return None
         return getattr(data, self._group)
+
+
+class AirbendForecastSensor(AirbendEntity, SensorEntity):
+    """Highest or lowest forecast outdoor temperature in the next day."""
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, coordinator: AirbendCoordinator, key: str, pick) -> None:
+        super().__init__(coordinator, key)
+        self._attr_translation_key = key
+        self._pick = pick
+        self._attr_icon = "mdi:weather-partly-cloudy"
+
+    @property
+    def native_value(self) -> float | None:
+        data = self.coordinator.data
+        if data is None or not data.forecast:
+            return None
+        upcoming = [point.temp_c for point in data.forecast if 0 <= point.hours <= 18]
+        if not upcoming:
+            return None
+        return round(self._pick(upcoming), 2)
 
 
 class AirbendSeasonSensor(AirbendEntity, SensorEntity):

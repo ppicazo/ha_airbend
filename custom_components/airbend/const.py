@@ -11,6 +11,7 @@ CONF_FAN = "fan"
 CONF_FAN_TEMPERATURE = "fan_temperature"
 CONF_FAN_MODE = "fan_mode"
 CONF_MANUAL_MODE = "manual_mode"
+CONF_WEATHER = "weather"
 
 CONF_SUMMER_INDOOR = "summer_indoor_c"
 CONF_HYSTERESIS = "hysteresis_c"

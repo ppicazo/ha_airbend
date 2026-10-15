@@ -8,7 +8,7 @@ import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -37,6 +37,7 @@ from .const import (
     CONF_SUMMER_MEDIUM,
     CONF_WINTER_CEILING,
     CONF_WINTER_HIGH,
+    CONF_WEATHER,
     DEFAULT_ICE_DAM,
     DEFAULT_MANUAL_MODE,
     DEFAULT_MIN_OFF,
@@ -49,6 +50,7 @@ from .decision import (
     Decision,
     FanCommand,
     FanSpeed,
+    ForecastPoint,
     Season,
     Snapshot,
     command_for,
@@ -80,6 +82,7 @@ class AirbendData:
         decision: Decision,
         enabled: bool,
         fan_available: bool,
+        forecast: tuple[ForecastPoint, ...] = (),
     ) -> None:
         self.outdoor = outdoor
         self.attic = attic
@@ -87,6 +90,7 @@ class AirbendData:
         self.decision = decision
         self.enabled = enabled
         self.fan_available = fan_available
+        self.forecast = forecast
 
 
 class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
@@ -111,8 +115,11 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         self._command_task: asyncio.Task[None] | None = None
         self._manual_mode_retry_at: datetime | None = None
         self.fan_error: str | None = None
+        self._forecast: tuple[ForecastPoint, ...] = ()
+        self._forecast_at: datetime | None = None
 
     async def _async_update_data(self) -> AirbendData:
+        await self._async_refresh_forecast()
         try:
             return self._evaluate()
         except Exception as err:
@@ -130,6 +137,7 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
                 ),
                 enabled=self.enabled,
                 fan_available=False,
+                forecast=self._forecast,
             )
 
     def _evaluate(self) -> AirbendData:
@@ -153,6 +161,7 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
                 applied_speed=self._applied_speed,
                 applied_at=self._applied_at,
                 now=now,
+                forecast=self._forecast,
             ),
             settings,
         )
@@ -176,6 +185,7 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
             decision=decision,
             enabled=self.enabled,
             fan_available=fan_available,
+            forecast=self._forecast,
         )
 
     @callback
@@ -213,10 +223,42 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         entities: list[str] = []
         for key in (CONF_OUTDOOR_SENSORS, CONF_ATTIC_SENSORS, CONF_INDOOR_SENSORS):
             entities.extend(self._entity_list(options, key))
-        for key in (CONF_FAN_TEMPERATURE, CONF_FAN, CONF_FAN_MODE):
+        for key in (CONF_FAN_TEMPERATURE, CONF_FAN, CONF_FAN_MODE, CONF_WEATHER):
             if options.get(key):
                 entities.append(options[key])
         return entities
+
+    async def _async_refresh_forecast(self) -> None:
+        entity_id = self.entry.options.get(CONF_WEATHER)
+        if not entity_id:
+            self._forecast = ()
+            self._forecast_at = None
+            return
+        now = dt_util.utcnow()
+        if (
+            self._forecast_at is not None
+            and now - self._forecast_at < timedelta(minutes=30)
+        ):
+            return
+        try:
+            response = await self.hass.services.async_call(
+                "weather",
+                "get_forecasts",
+                {"entity_id": entity_id, "type": "hourly"},
+                blocking=True,
+                return_response=True,
+            )
+        except Exception:
+            _LOGGER.warning("Airbend could not read the forecast from %s", entity_id)
+            return
+        outdoor = self._average(
+            self._entity_list(self.entry.options, CONF_OUTDOOR_SENSORS),
+            timedelta(hours=6),
+        )
+        self._forecast = _parse_forecast(
+            self.hass, entity_id, response or {}, outdoor.value_c, now
+        )
+        self._forecast_at = now
 
     def listen(self) -> None:
         self.entry.async_on_unload(
@@ -355,6 +397,60 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
             if speed is not self._applied_speed or self._applied_at is None:
                 self._applied_at = now
             self._applied_speed = speed
+
+
+def _parse_forecast(
+    hass: HomeAssistant,
+    entity_id: str,
+    response: dict[str, Any],
+    outdoor_c: float | None,
+    now: datetime,
+) -> tuple[ForecastPoint, ...]:
+    payload = response.get(entity_id) or {}
+    rows = payload.get("forecast") or []
+    samples: list[tuple[float, float]] = []
+    for row in rows:
+        temperature = row.get("temperature")
+        stamp = row.get("datetime")
+        if temperature is None or stamp is None:
+            continue
+        moment = dt_util.parse_datetime(str(stamp))
+        if moment is None:
+            continue
+        hours = (moment - now).total_seconds() / 3600
+        if hours < -0.5 or hours > 24:
+            continue
+        samples.append((hours, float(temperature)))
+    if not samples:
+        return ()
+    nearest = min(samples, key=lambda item: abs(item[0]))[1]
+    unit = _forecast_unit(hass, entity_id, nearest, outdoor_c)
+    return tuple(
+        ForecastPoint(
+            hours=hours,
+            temp_c=state_to_celsius(temperature, unit, UnitOfTemperature.CELSIUS),
+        )
+        for hours, temperature in samples
+    )
+
+
+def _forecast_unit(
+    hass: HomeAssistant,
+    entity_id: str,
+    sample: float,
+    outdoor_c: float | None,
+) -> str:
+    state = hass.states.get(entity_id)
+    explicit = None if state is None else state.attributes.get("temperature_unit")
+    if explicit:
+        return str(explicit)
+    if outdoor_c is None:
+        return UnitOfTemperature.CELSIUS
+    as_celsius = abs(sample - outdoor_c)
+    as_fahrenheit = abs(((sample - 32.0) * 5.0 / 9.0) - outdoor_c)
+    if as_fahrenheit + 1.5 < as_celsius:
+        return UnitOfTemperature.FAHRENHEIT
+    return UnitOfTemperature.CELSIUS
 
 
 def _matching_option(options: Any, target: str) -> str | None:

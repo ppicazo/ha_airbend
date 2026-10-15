@@ -33,6 +33,7 @@ from .const import (
     CONF_SUMMER_MEDIUM,
     CONF_WINTER_CEILING,
     CONF_WINTER_HIGH,
+    CONF_WEATHER,
     DEFAULT_ICE_DAM,
     DEFAULT_MANUAL_MODE,
     DEFAULT_MIN_OFF,
@@ -62,6 +63,9 @@ ONE_TEMP_SENSOR = selector.EntitySelector(
 FAN_SELECTOR = selector.EntitySelector(selector.EntitySelectorConfig(domain="fan"))
 SELECT_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="select")
+)
+WEATHER_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain="weather")
 )
 
 _BEHAVIOR_KEYS = (
@@ -110,6 +114,10 @@ def _entities_schema(suggested: dict[str, Any]) -> vol.Schema:
                 CONF_FAN_MODE,
                 description={"suggested_value": suggested.get(CONF_FAN_MODE, "")},
             ): SELECT_SELECTOR,
+            vol.Optional(
+                CONF_WEATHER,
+                description={"suggested_value": suggested.get(CONF_WEATHER, "")},
+            ): WEATHER_SELECTOR,
             vol.Optional(
                 CONF_MANUAL_MODE,
                 description={
@@ -172,7 +180,7 @@ def _behavior_schema(suggested: dict[str, Any], unit: str) -> vol.Schema:
 
 def _clean_entities(user_input: dict[str, Any]) -> dict[str, Any]:
     cleaned = dict(user_input)
-    for key in (CONF_FAN_TEMPERATURE, CONF_FAN_MODE, CONF_MANUAL_MODE):
+    for key in (CONF_FAN_TEMPERATURE, CONF_FAN_MODE, CONF_MANUAL_MODE, CONF_WEATHER):
         if not cleaned.get(key):
             cleaned.pop(key, None)
     return cleaned

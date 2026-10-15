@@ -65,6 +65,14 @@ class ControlSettings:
 
 
 @dataclass(frozen=True)
+class ForecastPoint:
+    """One hourly outdoor forecast temperature."""
+
+    hours: float
+    temp_c: float
+
+
+@dataclass(frozen=True)
 class Snapshot:
     """Inputs for one evaluation."""
 
@@ -75,6 +83,7 @@ class Snapshot:
     applied_speed: FanSpeed
     applied_at: datetime | None
     now: datetime
+    forecast: tuple[ForecastPoint, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -201,18 +210,22 @@ def _raw_speed(
         )
 
     if season is Season.SUMMER:
-        return _summer_speed(
+        base = _summer_speed(
             attic, outdoor, snapshot.indoor_c, outdoor_useful, settings
         )
-
-    if season is Season.UNKNOWN:
-        return (
+    elif season is Season.UNKNOWN:
+        base = (
             FanSpeed.OFF,
             "Indoor temperature is unavailable, so only the safety limit would run the fan.",
             False,
         )
+    else:
+        base = _winter_speed(attic, outdoor, outdoor_useful, settings)
 
-    return _winter_speed(attic, outdoor, outdoor_useful, settings)
+    return _prefer_forecast(
+        base,
+        _forecast_speed(attic, outdoor, season, settings, snapshot.forecast),
+    )
 
 
 def _summer_speed(
@@ -263,6 +276,10 @@ def _summer_speed(
 
 # Warm the attic on medium once outside air is this much warmer.
 _WARM_MEDIUM_C = 15.0 * 5.0 / 9.0
+# A later forecast this much colder than the current outdoor air is a cold night.
+_COLD_DROP_C = 10.0 * 5.0 / 9.0
+_HOT_LOOKAHEAD_H = 12.0
+_COLD_LOOKAHEAD_H = 18.0
 
 
 def _winter_speed(
@@ -340,6 +357,84 @@ def _winter_warm(
     if rise >= _WARM_MEDIUM_C and outdoor <= settings.summer_indoor_c:
         return FanSpeed.MEDIUM, reason, False
     return FanSpeed.LOW, reason, False
+
+
+def _prefer_forecast(
+    base: tuple[FanSpeed, str, bool],
+    forecast: tuple[FanSpeed, str] | None,
+) -> tuple[FanSpeed, str, bool]:
+    speed, reason, bypass = base
+    if forecast is None:
+        return base
+    forecast_speed, forecast_reason = forecast
+    if SPEED_RANK[forecast_speed] > SPEED_RANK[speed]:
+        return forecast_speed, forecast_reason, bypass
+    return base
+
+
+def _forecast_speed(
+    attic: float,
+    outdoor: float | None,
+    season: Season,
+    settings: ControlSettings,
+    forecast: tuple[ForecastPoint, ...],
+) -> tuple[FanSpeed, str] | None:
+    """Flush before a hot day, or bank warmth before a cold night."""
+
+    if outdoor is None or not forecast:
+        return None
+    hot = _first_where(
+        forecast,
+        _HOT_LOOKAHEAD_H,
+        lambda point: point.temp_c >= settings.summer_low_c,
+    )
+    cold = _first_where(
+        forecast,
+        _COLD_LOOKAHEAD_H,
+        lambda point: outdoor - point.temp_c >= _COLD_DROP_C,
+    )
+    hot_first = hot is not None and (cold is None or hot.hours <= cold.hours)
+    cold_first = cold is not None and (hot is None or cold.hours < hot.hours)
+
+    if (
+        hot_first
+        and hot is not None
+        and attic - outdoor >= settings.min_delta_c
+        and hot.temp_c - outdoor >= settings.min_delta_c
+    ):
+        speed = (
+            FanSpeed.MEDIUM
+            if hot.temp_c >= settings.summer_high_c
+            else FanSpeed.LOW
+        )
+        return (
+            speed,
+            "A hot day is coming, so the fan is flushing the attic while outside air is still cool.",
+        )
+
+    if (
+        cold_first
+        and season is not Season.SUMMER
+        and attic < settings.summer_indoor_c
+        and outdoor <= settings.winter_ceiling_c
+        and outdoor - attic >= settings.min_delta_c
+    ):
+        drop = outdoor - cold.temp_c if cold is not None else 0.0
+        speed = FanSpeed.MEDIUM if drop >= _WARM_MEDIUM_C else FanSpeed.LOW
+        return (
+            speed,
+            "A cold night is coming, so the fan is banking warmer outside air in the attic.",
+        )
+    return None
+
+
+def _first_where(forecast, horizon: float, predicate) -> ForecastPoint | None:
+    for point in sorted(forecast, key=lambda item: item.hours):
+        if point.hours < 0 or point.hours > horizon:
+            continue
+        if predicate(point):
+            return point
+    return None
 
 
 def _apply_cycle(

@@ -11,7 +11,8 @@
           "fan": "Attic fan",
           "fan_temperature": "Fan temperature sensor",
           "fan_mode": "Fan mode select",
-          "manual_mode": "Mode to select before taking control"
+          "manual_mode": "Mode to select before taking control",
+          "weather": "Hourly weather forecast"
         }
       },
       "behavior": {
@@ -53,7 +54,8 @@
           "fan": "Attic fan",
           "fan_temperature": "Fan temperature sensor",
           "fan_mode": "Fan mode select",
-          "manual_mode": "Mode to select before taking control"
+          "manual_mode": "Mode to select before taking control",
+          "weather": "Hourly weather forecast"
         }
       },
       "behavior": {
@@ -114,6 +116,12 @@
       },
       "status": {
         "name": "Status"
+      },
+      "forecast_high": {
+        "name": "Forecast high"
+      },
+      "forecast_low": {
+        "name": "Forecast low"
       }
     },
     "binary_sensor": {

@@ -16,6 +16,8 @@ A house at 75°F with a 70°F target, an 85°F attic, and 77°F outside air runs
 
 **Winter** uses warmer outside air to lift a cold attic toward the indoor target. A 61°F house with a 50°F attic and 68°F outside air runs the fan, because that outside air can warm the attic and slow the heat loss through the ceiling. The fan stays off once the attic is up to the indoor target, or when outside air is less than 5°F warmer than the attic. It also cools the attic if the buffer gets too hot (default 95°F, high at 110°F). Outdoor air hotter than that buffer limit is not pulled in.
 
+**Forecast** is optional. Point Airbend at a weather entity that provides an hourly forecast, such as Met.no. In the next 12 hours, if a hot afternoon is coming and outside air is still cooler than the attic, the fan flushes the attic before the heat arrives. If a cold night is coming first and outside air is warmer than the attic, the fan banks that warmth. A cold night that arrives before the hot afternoon wins, so the attic is not emptied of heat the house will want overnight. Forecast high and forecast low show the next 18 hours.
+
 **Safety** always wins. At 130°F the fan goes to high if outside air is cooler. If outside air is hotter, it stays off rather than making the attic worse. That override ignores the minimum on/off timers.
 
 **Ice-dam guard** (on by default) runs the fan on low when it is freezing outside (35°F or below) and the attic is still 60°F or warmer. A mild winter attic, around 50°F, is left alone. Turn the guard off in the integration options if you would rather keep every degree of attic warmth.
