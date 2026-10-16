@@ -28,6 +28,8 @@ The fan also stays at a speed for a minimum run (10 minutes) and minimum off tim
 
 Two-speed QuietCool fans expose Low and High. Airbend maps medium onto high. Fans with no presets get 33% / 66% / 100%.
 
+**Hazard shutdown.** Select smoke, carbon monoxide, and gas detectors, plus any smart outlets that should turn off. If any detector is on, Airbend turns the attic fan off, turns the HVAC off, and turns those outlets off. It ignores the minimum run time. When every detector is clear, it restores the HVAC mode and the outlets it turned off. A detector that is unavailable does not count as an alarm. This does not replace the detectors' own alarms.
+
 **Bedroom CO2** replaces a separate Fresh Air automation. Pick the bedroom carbon-dioxide sensors and the house thermostat. If any bedroom reaches 600 ppm, Airbend sets the thermostat fan to `Low`. It returns the fan to `Auto low` only after every bedroom is under 550 ppm, and only if the fan is still on `Low`. The attic speed does not change. Use the **CO2 circulation** switch to pause this without pausing the attic fan. If your thermostat uses different fan-mode names, set those names in the options.
 
 ## Install

@@ -16,7 +16,11 @@
           "co2_sensors": "Bedroom CO2 sensors",
           "climate": "HVAC thermostat",
           "circulate_mode": "Fan mode when CO2 is high",
-          "idle_fan_mode": "Fan mode when CO2 is normal"
+          "idle_fan_mode": "Fan mode when CO2 is normal",
+          "smoke_sensors": "Smoke detectors",
+          "co_sensors": "Carbon monoxide detectors",
+          "gas_sensors": "Gas detectors",
+          "shutoff_switches": "Outlets to turn off during an alarm"
         }
       },
       "behavior": {
@@ -66,7 +70,11 @@
           "co2_sensors": "Bedroom CO2 sensors",
           "climate": "HVAC thermostat",
           "circulate_mode": "Fan mode when CO2 is high",
-          "idle_fan_mode": "Fan mode when CO2 is normal"
+          "idle_fan_mode": "Fan mode when CO2 is normal",
+          "smoke_sensors": "Smoke detectors",
+          "co_sensors": "Carbon monoxide detectors",
+          "gas_sensors": "Gas detectors",
+          "shutoff_switches": "Outlets to turn off during an alarm"
         }
       },
       "behavior": {
@@ -150,6 +158,9 @@
       },
       "circulating": {
         "name": "Circulating"
+      },
+      "hazard": {
+        "name": "Hazard shutdown"
       }
     },
     "switch": {

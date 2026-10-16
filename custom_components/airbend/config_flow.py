@@ -17,7 +17,9 @@ from .const import (
     CONF_CO2_HYSTERESIS,
     CONF_CO2_SENSORS,
     CONF_CO2_THRESHOLD,
+    CONF_CO_SENSORS,
     CONF_FAN,
+    CONF_GAS_SENSORS,
     CONF_FAN_MODE,
     CONF_FAN_TEMPERATURE,
     CONF_HYSTERESIS,
@@ -32,6 +34,8 @@ from .const import (
     CONF_MIN_ON,
     CONF_OUTDOOR_SENSORS,
     CONF_SAFETY_MAX,
+    CONF_SHUTOFF_SWITCHES,
+    CONF_SMOKE_SENSORS,
     CONF_STALE_MINUTES,
     CONF_SUMMER_HIGH,
     CONF_SUMMER_INDOOR,
@@ -86,6 +90,30 @@ CO2_SENSOR = selector.EntitySelector(
 )
 CLIMATE_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="climate")
+)
+SMOKE_SENSOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(
+        domain="binary_sensor",
+        device_class="smoke",
+        multiple=True,
+    )
+)
+CO_SENSOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(
+        domain="binary_sensor",
+        device_class="carbon_monoxide",
+        multiple=True,
+    )
+)
+GAS_SENSOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(
+        domain="binary_sensor",
+        device_class="gas",
+        multiple=True,
+    )
+)
+SWITCH_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain="switch", multiple=True)
 )
 
 _BEHAVIOR_KEYS = (
@@ -160,6 +188,22 @@ def _entities_schema(suggested: dict[str, Any]) -> vol.Schema:
                     )
                 },
             ): selector.TextSelector(),
+            vol.Optional(
+                CONF_SMOKE_SENSORS,
+                description={"suggested_value": suggested.get(CONF_SMOKE_SENSORS, [])},
+            ): SMOKE_SENSOR,
+            vol.Optional(
+                CONF_CO_SENSORS,
+                description={"suggested_value": suggested.get(CONF_CO_SENSORS, [])},
+            ): CO_SENSOR,
+            vol.Optional(
+                CONF_GAS_SENSORS,
+                description={"suggested_value": suggested.get(CONF_GAS_SENSORS, [])},
+            ): GAS_SENSOR,
+            vol.Optional(
+                CONF_SHUTOFF_SWITCHES,
+                description={"suggested_value": suggested.get(CONF_SHUTOFF_SWITCHES, [])},
+            ): SWITCH_SELECTOR,
             vol.Optional(
                 CONF_MANUAL_MODE,
                 description={
@@ -251,6 +295,10 @@ def _clean_entities(user_input: dict[str, Any]) -> dict[str, Any]:
         CONF_CO2_SENSORS,
         CONF_CIRCULATE_MODE,
         CONF_IDLE_FAN_MODE,
+        CONF_SMOKE_SENSORS,
+        CONF_CO_SENSORS,
+        CONF_GAS_SENSORS,
+        CONF_SHUTOFF_SWITCHES,
     ):
         if not cleaned.get(key):
             cleaned.pop(key, None)

@@ -496,6 +496,21 @@ def held_sample(
     return None, None
 
 
+def hazard_reason(names: list[str]) -> str | None:
+    """Why air movement is stopped, or None when no detector is alarming.
+
+    Only an explicit on state counts. Unavailable and unknown do not, so a
+    missing detector does not shut the house down.
+    """
+    if not names:
+        return None
+    listed = ", ".join(names)
+    return (
+        f"Hazard detected: {listed}. "
+        "The attic fan, HVAC, and selected outlets are off."
+    )
+
+
 def circulation_demand(
     readings_ppm: list[float],
     *,

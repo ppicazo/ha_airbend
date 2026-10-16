@@ -219,6 +219,13 @@ class AirbendStatusSensor(AirbendEntity, SensorEntity):
         data = self.coordinator.data
         if data is None:
             return None
+        if data.hazard_active:
+            if self.coordinator.hazard_error:
+                return (
+                    f"Hazard shutdown failed: {self.coordinator.hazard_error} "
+                    f"{data.decision.reason}"
+                )
+            return data.decision.reason
         if not data.enabled:
             return f"Paused. {data.decision.reason}"
         if self.coordinator.fan_error:

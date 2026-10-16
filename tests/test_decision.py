@@ -25,6 +25,7 @@ command_for = decision.command_for
 decide = decision.decide
 circulation_demand = decision.circulation_demand
 held_sample = decision.held_sample
+hazard_reason = decision.hazard_reason
 ForecastPoint = decision.ForecastPoint
 
 NOW = datetime(2026, 7, 1, 15, 0, tzinfo=timezone.utc)
@@ -355,3 +356,11 @@ def test_a_dropout_keeps_the_last_temperature_until_it_is_stale() -> None:
     replaced, stored = held_sample(28.0, NOW, held, NOW, timedelta(minutes=30))
     assert replaced == 28.0
     assert stored == (28.0, NOW)
+
+
+def test_one_detector_stops_air_movement() -> None:
+    assert hazard_reason([]) is None
+    reason = hazard_reason(["Hallway smoke"])
+    assert reason is not None
+    assert "Hallway smoke" in reason
+    assert "off" in reason

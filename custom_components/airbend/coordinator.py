@@ -8,7 +8,13 @@ import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
+from homeassistant.const import (
+    STATE_OFF,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -18,11 +24,13 @@ from .const import (
     CONF_ATTIC_SENSORS,
     CONF_CIRCULATE_MODE,
     CONF_CLIMATE,
+    CONF_CO_SENSORS,
     CONF_CO2_HYSTERESIS,
     CONF_CO2_SENSORS,
     CONF_CO2_THRESHOLD,
     CONF_FAN,
     CONF_FAN_MODE,
+    CONF_GAS_SENSORS,
     CONF_FAN_TEMPERATURE,
     CONF_HYSTERESIS,
     CONF_ICE_DAM,
@@ -36,6 +44,8 @@ from .const import (
     CONF_MIN_ON,
     CONF_OUTDOOR_SENSORS,
     CONF_SAFETY_MAX,
+    CONF_SHUTOFF_SWITCHES,
+    CONF_SMOKE_SENSORS,
     CONF_STALE_MINUTES,
     CONF_SUMMER_HIGH,
     CONF_SUMMER_INDOOR,
@@ -66,6 +76,7 @@ from .decision import (
     circulation_demand,
     command_for,
     decide,
+    hazard_reason,
     held_sample,
 )
 from .units import default_options_c, state_to_celsius
@@ -100,6 +111,7 @@ class AirbendData:
         circulation_on: bool = False,
         circulation_reason: str = "Bedroom circulation is not set up.",
         circulation_configured: bool = False,
+        hazard_active: bool = False,
     ) -> None:
         self.outdoor = outdoor
         self.attic = attic
@@ -112,6 +124,7 @@ class AirbendData:
         self.circulation_on = circulation_on
         self.circulation_reason = circulation_reason
         self.circulation_configured = circulation_configured
+        self.hazard_active = hazard_active
 
 
 class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
@@ -142,6 +155,12 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         self._circulation_since: datetime | None = None
         self._circulation_task: asyncio.Task[None] | None = None
         self._held_samples: dict[str, tuple[float, datetime]] = {}
+        self._hazard_goal = False
+        self._hazard_latched = False
+        self._hazard_task: asyncio.Task[None] | None = None
+        self._saved_hvac_mode: str | None = None
+        self._saved_outlets: list[str] = []
+        self.hazard_error: str | None = None
         self._forecast: tuple[ForecastPoint, ...] = ()
         self._forecast_at: datetime | None = None
 
@@ -194,19 +213,32 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         )
         self._season = decision.season
 
+        alarm = hazard_reason(self._detector_names(options))
+        if alarm is not None:
+            decision = Decision(
+                season=decision.season,
+                speed=FanSpeed.OFF,
+                unconstrained_speed=FanSpeed.OFF,
+                reason=alarm,
+                safety_bypass=True,
+            )
+
         fan_id = options.get(CONF_FAN)
         fan_state = self.hass.states.get(fan_id) if fan_id else None
         fan_available = (
             fan_state is not None and fan_state.state not in {STATE_UNAVAILABLE, STATE_UNKNOWN}
         )
 
-        if self.enabled and self.control_ready and fan_available:
+        command_fan = self.control_ready and fan_available and (self.enabled or alarm is not None)
+        if command_fan:
             self._schedule_command(decision)
         elif self.enabled and self.control_ready and not fan_available:
             _LOGGER.warning("Fan %s is unavailable; Airbend left it alone", fan_id)
 
+        self._track_hazard(alarm is not None)
+
         bedroom_co2, circulation_on, circulation_reason, configured = self._circulation(
-            options, stale, now
+            options, stale, now, alarm is not None
         )
 
         return AirbendData(
@@ -221,6 +253,7 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
             circulation_on=circulation_on,
             circulation_reason=circulation_reason,
             circulation_configured=configured,
+            hazard_active=alarm is not None,
         )
 
     @callback
@@ -235,14 +268,124 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         self.circulation_enabled = enabled
         self.hass.async_create_task(self.async_request_refresh())
 
+    def _detector_names(self, options: dict[str, Any]) -> list[str]:
+        names: list[str] = []
+        for key in (CONF_SMOKE_SENSORS, CONF_CO_SENSORS, CONF_GAS_SENSORS):
+            for entity_id in self._entity_list(options, key):
+                state = self.hass.states.get(entity_id)
+                if state is None or state.state != STATE_ON:
+                    continue
+                names.append(state.attributes.get("friendly_name") or entity_id)
+        return names
+
+    def _track_hazard(self, active: bool) -> None:
+        if not self.control_ready:
+            return
+        if active:
+            self._hazard_latched = True
+            self._schedule_hazard(True)
+            return
+        if self._hazard_latched:
+            self._hazard_latched = False
+            self._schedule_hazard(False)
+
+    def _schedule_hazard(self, active: bool) -> None:
+        self._hazard_goal = active
+        if self._hazard_task is not None and not self._hazard_task.done():
+            return
+        self._hazard_task = self.hass.async_create_task(self._async_safe_hazard())
+
+    async def _async_safe_hazard(self) -> None:
+        while True:
+            goal = self._hazard_goal
+            self.hazard_error = None
+            try:
+                if goal:
+                    await self._async_stop_for_hazard()
+                else:
+                    await self._async_restore_after_hazard()
+            except Exception as err:
+                _LOGGER.exception("Airbend could not apply the hazard shutdown")
+                self.hazard_error = str(err)
+            if self._hazard_goal == goal:
+                break
+        if self.data is not None:
+            self.async_set_updated_data(self.data)
+
+    async def _async_stop_for_hazard(self) -> None:
+        options = self.entry.options
+        climate_id = options.get(CONF_CLIMATE)
+        if climate_id:
+            state = self.hass.states.get(climate_id)
+            if state is not None and state.state not in {STATE_UNAVAILABLE, STATE_UNKNOWN, STATE_OFF}:
+                if self._saved_hvac_mode is None:
+                    self._saved_hvac_mode = state.state
+                _LOGGER.warning("Airbend turned %s off for a hazard", climate_id)
+                await self.hass.services.async_call(
+                    "climate",
+                    "turn_off",
+                    {"entity_id": climate_id},
+                    blocking=True,
+                )
+        for entity_id in self._entity_list(options, CONF_SHUTOFF_SWITCHES):
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state != STATE_ON:
+                continue
+            if entity_id not in self._saved_outlets:
+                self._saved_outlets.append(entity_id)
+            _LOGGER.warning("Airbend turned %s off for a hazard", entity_id)
+            await self.hass.services.async_call(
+                "switch",
+                "turn_off",
+                {"entity_id": entity_id},
+                blocking=True,
+            )
+
+    async def _async_restore_after_hazard(self) -> None:
+        climate_id = self.entry.options.get(CONF_CLIMATE)
+        mode = self._saved_hvac_mode
+        self._saved_hvac_mode = None
+        if climate_id and mode and mode != STATE_OFF:
+            state = self.hass.states.get(climate_id)
+            if state is not None and state.state == STATE_OFF:
+                _LOGGER.info("Airbend restored %s to %s", climate_id, mode)
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": climate_id, "hvac_mode": mode},
+                    blocking=True,
+                )
+        outlets = list(self._saved_outlets)
+        self._saved_outlets.clear()
+        for entity_id in outlets:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state != STATE_OFF:
+                continue
+            _LOGGER.info("Airbend restored %s", entity_id)
+            await self.hass.services.async_call(
+                "switch",
+                "turn_on",
+                {"entity_id": entity_id},
+                blocking=True,
+            )
+
     def _circulation(
         self,
         options: dict[str, Any],
         stale: timedelta,
         now: datetime,
+        hazard: bool,
     ) -> tuple[float | None, bool, str, bool]:
         sensors = self._entity_list(options, CONF_CO2_SENSORS)
         climate_id = options.get(CONF_CLIMATE)
+        if hazard:
+            peak = None
+            if sensors:
+                readings = self._co2_readings(sensors, stale)
+                peak = max(readings) if readings else None
+            self._circulation_on = False
+            self._circulation_since = None
+            return peak, False, "Stopped because a hazard detector is on.", bool(sensors and climate_id)
         if not sensors or not climate_id:
             return None, False, "Bedroom circulation is not set up.", False
         readings = self._co2_readings(sensors, stale)
@@ -342,6 +485,8 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         circulate = _matching_option(modes, circulate_name)
         idle = _matching_option(modes, idle_name)
         current = state.attributes.get("fan_mode")
+        if self._hazard_goal:
+            return
         if demand:
             if circulate is None:
                 self.circulation_error = f"{climate_id} has no {circulate_name!r} fan mode"
@@ -367,7 +512,16 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
     def watched_entities(self) -> list[str]:
         options = self.entry.options
         entities: list[str] = []
-        for key in (CONF_OUTDOOR_SENSORS, CONF_ATTIC_SENSORS, CONF_INDOOR_SENSORS, CONF_CO2_SENSORS):
+        for key in (
+            CONF_OUTDOOR_SENSORS,
+            CONF_ATTIC_SENSORS,
+            CONF_INDOOR_SENSORS,
+            CONF_CO2_SENSORS,
+            CONF_SMOKE_SENSORS,
+            CONF_CO_SENSORS,
+            CONF_GAS_SENSORS,
+            CONF_SHUTOFF_SWITCHES,
+        ):
             entities.extend(self._entity_list(options, key))
         for key in (CONF_FAN_TEMPERATURE, CONF_FAN, CONF_FAN_MODE, CONF_WEATHER, CONF_CLIMATE):
             if options.get(key):

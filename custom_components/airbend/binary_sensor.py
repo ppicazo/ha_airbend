@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
@@ -28,6 +29,12 @@ _CIRCULATING = BinarySensorEntityDescription(
     icon="mdi:air-purifier",
 )
 
+_HAZARD = BinarySensorEntityDescription(
+    key="hazard",
+    translation_key="hazard",
+    device_class=BinarySensorDeviceClass.SAFETY,
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -36,7 +43,11 @@ async def async_setup_entry(
 ) -> None:
     coordinator: AirbendCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
-        [AirbendVentilatingSensor(coordinator), AirbendCirculatingSensor(coordinator)]
+        [
+            AirbendVentilatingSensor(coordinator),
+            AirbendCirculatingSensor(coordinator),
+            AirbendHazardSensor(coordinator),
+        ]
     )
 
 
@@ -70,3 +81,19 @@ class AirbendCirculatingSensor(AirbendEntity, BinarySensorEntity):
         if data is None:
             return None
         return data.circulation_on
+
+
+class AirbendHazardSensor(AirbendEntity, BinarySensorEntity):
+    """On when smoke, carbon monoxide, or gas has stopped air movement."""
+
+    entity_description = _HAZARD
+
+    def __init__(self, coordinator: AirbendCoordinator) -> None:
+        super().__init__(coordinator, "hazard")
+
+    @property
+    def is_on(self) -> bool | None:
+        data = self.coordinator.data
+        if data is None:
+            return None
+        return data.hazard_active
