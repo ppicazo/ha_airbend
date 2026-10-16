@@ -24,6 +24,7 @@ Snapshot = decision.Snapshot
 command_for = decision.command_for
 decide = decision.decide
 circulation_demand = decision.circulation_demand
+held_sample = decision.held_sample
 ForecastPoint = decision.ForecastPoint
 
 NOW = datetime(2026, 7, 1, 15, 0, tzinfo=timezone.utc)
@@ -333,3 +334,24 @@ def test_circulation_starts_at_600_and_holds_until_550() -> None:
     assert "550" in hold_reason
     assert stopped is False
     assert "540" in stop_reason
+
+
+def test_a_dropout_keeps_the_last_temperature_until_it_is_stale() -> None:
+    seen = NOW - timedelta(minutes=5)
+    held = (30.0, seen)
+    value, updated = held_sample(None, None, held, NOW, timedelta(minutes=30))
+    assert value == 30.0
+    assert updated == held
+
+    expired = held_sample(
+        None,
+        None,
+        held,
+        seen + timedelta(minutes=31),
+        timedelta(minutes=30),
+    )
+    assert expired == (None, None)
+
+    replaced, stored = held_sample(28.0, NOW, held, NOW, timedelta(minutes=30))
+    assert replaced == 28.0
+    assert stored == (28.0, NOW)

@@ -48,7 +48,7 @@ Home Assistant 2025.1 or newer.
 
 ### Setup
 
-1. Select one or more outdoor, attic, and indoor temperature sensors. They need the `temperature` device class. Each group is averaged, and stale readings (default 30 minutes) are left out.
+1. Select one or more outdoor, attic, and indoor temperature sensors. They need the `temperature` device class. Each group is averaged. A sensor that blips unavailable keeps its last reading until that reading is stale (default 30 minutes), so one dropout does not make the average jump to the remaining sensor.
 2. Select the QuietCool fan.
 3. Select the fan's temperature sensor if you want it included in the attic average.
 4. Select the fan's mode entity (`Idle` / `Timer` / `TH`) and leave the manual mode as `Idle`. Airbend switches it to Idle so the fan's built-in thermostat does not fight these rules.

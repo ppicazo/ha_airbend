@@ -66,6 +66,7 @@ from .decision import (
     circulation_demand,
     command_for,
     decide,
+    held_sample,
 )
 from .units import default_options_c, state_to_celsius
 
@@ -140,6 +141,7 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         self._circulation_on = False
         self._circulation_since: datetime | None = None
         self._circulation_task: asyncio.Task[None] | None = None
+        self._held_samples: dict[str, tuple[float, datetime]] = {}
         self._forecast: tuple[ForecastPoint, ...] = ()
         self._forecast_at: datetime | None = None
 
@@ -415,31 +417,47 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         values: list[float] = []
         sources: list[str] = []
         now = dt_util.utcnow()
-        fallback = self.hass.config.units.temperature_unit
         for entity_id in entity_ids:
-            state = self.hass.states.get(entity_id)
-            if state is None or state.state in {STATE_UNAVAILABLE, STATE_UNKNOWN}:
+            sample = self._sample(entity_id, now, stale_after)
+            if sample is None:
                 continue
-            try:
-                age = now - state.last_updated
-            except TypeError:
-                age = timedelta(0)
-            if age > stale_after:
-                continue
-            try:
-                raw = float(state.state)
-            except (TypeError, ValueError):
-                continue
-            unit = state.attributes.get("unit_of_measurement")
-            try:
-                values.append(state_to_celsius(raw, unit, fallback))
-            except ValueError:
-                _LOGGER.debug("Skipping %s with unsupported unit %s", entity_id, unit)
-                continue
+            values.append(sample)
             sources.append(entity_id)
         if not values:
             return Reading(None, [])
         return Reading(sum(values) / len(values), sources)
+
+    def _sample(
+        self, entity_id: str, now: datetime, stale_after: timedelta
+    ) -> float | None:
+        fresh: float | None = None
+        fresh_at: datetime | None = None
+        state = self.hass.states.get(entity_id)
+        if state is not None and state.state not in {STATE_UNAVAILABLE, STATE_UNKNOWN}:
+            try:
+                raw = float(state.state)
+            except (TypeError, ValueError):
+                raw = None
+            if raw is not None:
+                unit = state.attributes.get("unit_of_measurement")
+                try:
+                    fresh = state_to_celsius(raw, unit, self.hass.config.units.temperature_unit)
+                except ValueError:
+                    _LOGGER.debug("Skipping %s with unsupported unit %s", entity_id, unit)
+                else:
+                    fresh_at = state.last_updated
+                    try:
+                        now - fresh_at
+                    except TypeError:
+                        fresh_at = now
+        value, held = held_sample(
+            fresh, fresh_at, self._held_samples.get(entity_id), now, stale_after
+        )
+        if held is None:
+            self._held_samples.pop(entity_id, None)
+        else:
+            self._held_samples[entity_id] = held
+        return value
 
     async def _async_command_fan(self, decision: Decision, now: datetime) -> None:
         options = self.entry.options

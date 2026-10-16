@@ -472,6 +472,30 @@ def _apply_cycle(
     return desired
 
 
+def held_sample(
+    fresh: float | None,
+    fresh_at: datetime | None,
+    held: tuple[float, datetime] | None,
+    now: datetime,
+    stale_after: timedelta,
+) -> tuple[float | None, tuple[float, datetime] | None]:
+    """Keep the last good sample through a short dropout.
+
+    A current sample replaces the held one. An unavailable sample keeps the
+    held value until it is older than stale_after. A sample that is already
+    stale does not refresh the hold, so a stuck sensor still drops out.
+    """
+    if (
+        fresh is not None
+        and fresh_at is not None
+        and now - fresh_at <= stale_after
+    ):
+        return fresh, (fresh, fresh_at)
+    if held is not None and now - held[1] <= stale_after:
+        return held[0], held
+    return None, None
+
+
 def circulation_demand(
     readings_ppm: list[float],
     *,
