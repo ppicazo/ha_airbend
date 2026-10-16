@@ -247,12 +247,6 @@ def _summer_speed(
             "Summer mode, and outside air is not usefully cooler than the attic.",
             False,
         )
-    if indoor is not None and attic <= indoor:
-        return (
-            FanSpeed.OFF,
-            "Summer: the attic is already no warmer than the house.",
-            False,
-        )
     if attic >= settings.summer_high_c:
         return FanSpeed.HIGH, "Summer: the attic is hot and outside air is cooler.", False
     if attic >= settings.summer_medium_c:
@@ -271,6 +265,18 @@ def _summer_speed(
         return (
             FanSpeed.LOW,
             "Summer: the attic reached the low-speed temperature.",
+            False,
+        )
+    if indoor is not None and attic <= indoor:
+        if attic - outdoor >= _MEDIUM_BOOST_C:
+            return (
+                FanSpeed.MEDIUM,
+                "Summer: the house is still warm, and outside air can keep cooling the attic.",
+                False,
+            )
+        return (
+            FanSpeed.LOW,
+            "Summer: the house is still warm, and outside air can keep cooling the attic.",
             False,
         )
     return (

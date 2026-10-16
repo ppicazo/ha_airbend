@@ -122,12 +122,16 @@ def test_winter_imports_warmer_outside_air_into_a_cold_attic() -> None:
     assert "lifting a cold attic" in decision.reason
 
 
-def test_summer_stays_off_when_the_attic_is_not_warming_the_house() -> None:
-    # 77°F house, 73°F attic, 64°F outside.
-    decision = decide(snap(indoor_c=25.0, attic_c=22.8, outdoor_c=17.8), settings())
+def test_summer_keeps_cooling_after_the_attic_drops_below_the_house() -> None:
+    # 78.2°F house, 77.3°F attic, 71°F outside.
+    decision = decide(
+        snap(indoor_c=25.67, attic_c=25.17, outdoor_c=21.67),
+        settings(),
+    )
 
-    assert decision.speed is FanSpeed.OFF
-    assert "no warmer than the house" in decision.reason
+    assert decision.season is Season.SUMMER
+    assert decision.speed is FanSpeed.LOW
+    assert "still warm" in decision.reason
 
 
 def test_indoor_hysteresis_holds_summer_until_the_house_actually_cools() -> None:
@@ -191,8 +195,8 @@ def test_safety_limit_overrides_a_hot_outdoor_and_a_minimum_runtime() -> None:
 def test_minimum_runtime_holds_a_drop_but_not_a_step_up() -> None:
     held = decide(
         snap(
-            attic_c=22.0,
-            outdoor_c=16.0,
+            attic_c=30.0,
+            outdoor_c=29.0,
             indoor_c=26.0,
             season=Season.SUMMER,
             applied_speed=FanSpeed.LOW,
