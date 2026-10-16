@@ -12,6 +12,11 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_ATTIC_SENSORS,
+    CONF_CIRCULATE_MODE,
+    CONF_CLIMATE,
+    CONF_CO2_HYSTERESIS,
+    CONF_CO2_SENSORS,
+    CONF_CO2_THRESHOLD,
     CONF_FAN,
     CONF_FAN_MODE,
     CONF_FAN_TEMPERATURE,
@@ -19,6 +24,7 @@ from .const import (
     CONF_ICE_DAM,
     CONF_ICE_DAM_ATTIC,
     CONF_ICE_DAM_OUTDOOR,
+    CONF_IDLE_FAN_MODE,
     CONF_INDOOR_SENSORS,
     CONF_MANUAL_MODE,
     CONF_MIN_DELTA,
@@ -34,7 +40,11 @@ from .const import (
     CONF_WINTER_CEILING,
     CONF_WINTER_HIGH,
     CONF_WEATHER,
+    DEFAULT_CIRCULATE_MODE,
+    DEFAULT_CO2_HYSTERESIS,
+    DEFAULT_CO2_THRESHOLD,
     DEFAULT_ICE_DAM,
+    DEFAULT_IDLE_FAN_MODE,
     DEFAULT_MANUAL_MODE,
     DEFAULT_MIN_OFF,
     DEFAULT_MIN_ON,
@@ -66,6 +76,16 @@ SELECT_SELECTOR = selector.EntitySelector(
 )
 WEATHER_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="weather")
+)
+CO2_SENSOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(
+        domain="sensor",
+        device_class="carbon_dioxide",
+        multiple=True,
+    )
+)
+CLIMATE_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain="climate")
 )
 
 _BEHAVIOR_KEYS = (
@@ -118,6 +138,28 @@ def _entities_schema(suggested: dict[str, Any]) -> vol.Schema:
                 CONF_WEATHER,
                 description={"suggested_value": suggested.get(CONF_WEATHER, "")},
             ): WEATHER_SELECTOR,
+            vol.Optional(
+                CONF_CO2_SENSORS,
+                description={"suggested_value": suggested.get(CONF_CO2_SENSORS, [])},
+            ): CO2_SENSOR,
+            vol.Optional(
+                CONF_CLIMATE,
+                description={"suggested_value": suggested.get(CONF_CLIMATE, "")},
+            ): CLIMATE_SELECTOR,
+            vol.Optional(
+                CONF_CIRCULATE_MODE,
+                description={
+                    "suggested_value": suggested.get(CONF_CIRCULATE_MODE, DEFAULT_CIRCULATE_MODE)
+                },
+            ): selector.TextSelector(),
+            vol.Optional(
+                CONF_IDLE_FAN_MODE,
+                description={
+                    "suggested_value": suggested.get(
+                        CONF_IDLE_FAN_MODE, DEFAULT_IDLE_FAN_MODE
+                    )
+                },
+            ): selector.TextSelector(),
             vol.Optional(
                 CONF_MANUAL_MODE,
                 description={
@@ -175,12 +217,41 @@ def _behavior_schema(suggested: dict[str, Any], unit: str) -> vol.Schema:
     ] = selector.NumberSelector(
         selector.NumberSelectorConfig(min=5, max=180, step=1, unit_of_measurement="min")
     )
+    fields[
+        vol.Required(
+            CONF_CO2_THRESHOLD,
+            description={
+                "suggested_value": suggested.get(CONF_CO2_THRESHOLD, DEFAULT_CO2_THRESHOLD)
+            },
+        )
+    ] = selector.NumberSelector(
+        selector.NumberSelectorConfig(min=400, max=2000, step=10, unit_of_measurement="ppm")
+    )
+    fields[
+        vol.Required(
+            CONF_CO2_HYSTERESIS,
+            description={
+                "suggested_value": suggested.get(CONF_CO2_HYSTERESIS, DEFAULT_CO2_HYSTERESIS)
+            },
+        )
+    ] = selector.NumberSelector(
+        selector.NumberSelectorConfig(min=10, max=300, step=10, unit_of_measurement="ppm")
+    )
     return vol.Schema(fields)
 
 
 def _clean_entities(user_input: dict[str, Any]) -> dict[str, Any]:
     cleaned = dict(user_input)
-    for key in (CONF_FAN_TEMPERATURE, CONF_FAN_MODE, CONF_MANUAL_MODE, CONF_WEATHER):
+    for key in (
+        CONF_FAN_TEMPERATURE,
+        CONF_FAN_MODE,
+        CONF_MANUAL_MODE,
+        CONF_WEATHER,
+        CONF_CLIMATE,
+        CONF_CO2_SENSORS,
+        CONF_CIRCULATE_MODE,
+        CONF_IDLE_FAN_MODE,
+    ):
         if not cleaned.get(key):
             cleaned.pop(key, None)
     return cleaned
@@ -195,6 +266,8 @@ def _display_behavior(stored: dict[str, Any], unit: str) -> dict[str, Any]:
     shown[CONF_MIN_ON] = stored.get(CONF_MIN_ON, DEFAULT_MIN_ON)
     shown[CONF_MIN_OFF] = stored.get(CONF_MIN_OFF, DEFAULT_MIN_OFF)
     shown[CONF_STALE_MINUTES] = stored.get(CONF_STALE_MINUTES, DEFAULT_STALE_MINUTES)
+    shown[CONF_CO2_THRESHOLD] = stored.get(CONF_CO2_THRESHOLD, DEFAULT_CO2_THRESHOLD)
+    shown[CONF_CO2_HYSTERESIS] = stored.get(CONF_CO2_HYSTERESIS, DEFAULT_CO2_HYSTERESIS)
     return shown
 
 
@@ -206,6 +279,8 @@ def _store_behavior(user_input: dict[str, Any], unit: str) -> dict[str, Any]:
     stored[CONF_MIN_ON] = int(user_input[CONF_MIN_ON])
     stored[CONF_MIN_OFF] = int(user_input[CONF_MIN_OFF])
     stored[CONF_STALE_MINUTES] = int(user_input[CONF_STALE_MINUTES])
+    stored[CONF_CO2_THRESHOLD] = int(user_input[CONF_CO2_THRESHOLD])
+    stored[CONF_CO2_HYSTERESIS] = int(user_input[CONF_CO2_HYSTERESIS])
     return stored
 
 
@@ -221,6 +296,9 @@ def _behavior_errors(stored: dict[str, Any]) -> dict[str, str]:
         return errors
     if stored[CONF_ICE_DAM] and stored[CONF_ICE_DAM_ATTIC] >= stored[CONF_WINTER_CEILING]:
         errors["base"] = "ice_dam_order"
+        return errors
+    if stored[CONF_CO2_HYSTERESIS] >= stored[CONF_CO2_THRESHOLD]:
+        errors["base"] = "co2_hysteresis"
     return errors
 
 

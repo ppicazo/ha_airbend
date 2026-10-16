@@ -12,6 +12,12 @@ CONF_FAN_TEMPERATURE = "fan_temperature"
 CONF_FAN_MODE = "fan_mode"
 CONF_MANUAL_MODE = "manual_mode"
 CONF_WEATHER = "weather"
+CONF_CO2_SENSORS = "co2_sensors"
+CONF_CLIMATE = "climate"
+CONF_CO2_THRESHOLD = "co2_threshold"
+CONF_CO2_HYSTERESIS = "co2_hysteresis"
+CONF_CIRCULATE_MODE = "circulate_mode"
+CONF_IDLE_FAN_MODE = "idle_fan_mode"
 
 CONF_SUMMER_INDOOR = "summer_indoor_c"
 CONF_HYSTERESIS = "hysteresis_c"
@@ -52,6 +58,10 @@ DEFAULT_MIN_ON = 10
 DEFAULT_MIN_OFF = 5
 DEFAULT_STALE_MINUTES = 30
 DEFAULT_MANUAL_MODE = "Idle"
+DEFAULT_CO2_THRESHOLD = 600
+DEFAULT_CO2_HYSTERESIS = 50
+DEFAULT_CIRCULATE_MODE = "circulate"
+DEFAULT_IDLE_FAN_MODE = "auto"
 DEFAULT_NAME = "Airbend"
 
 # Form ranges in °F. The config flow converts them to the user's unit.

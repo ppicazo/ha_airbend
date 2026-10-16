@@ -16,6 +16,11 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_ATTIC_SENSORS,
+    CONF_CIRCULATE_MODE,
+    CONF_CLIMATE,
+    CONF_CO2_HYSTERESIS,
+    CONF_CO2_SENSORS,
+    CONF_CO2_THRESHOLD,
     CONF_FAN,
     CONF_FAN_MODE,
     CONF_FAN_TEMPERATURE,
@@ -23,6 +28,7 @@ from .const import (
     CONF_ICE_DAM,
     CONF_ICE_DAM_ATTIC,
     CONF_ICE_DAM_OUTDOOR,
+    CONF_IDLE_FAN_MODE,
     CONF_INDOOR_SENSORS,
     CONF_MANUAL_MODE,
     CONF_MIN_DELTA,
@@ -38,7 +44,11 @@ from .const import (
     CONF_WINTER_CEILING,
     CONF_WINTER_HIGH,
     CONF_WEATHER,
+    DEFAULT_CIRCULATE_MODE,
+    DEFAULT_CO2_HYSTERESIS,
+    DEFAULT_CO2_THRESHOLD,
     DEFAULT_ICE_DAM,
+    DEFAULT_IDLE_FAN_MODE,
     DEFAULT_MANUAL_MODE,
     DEFAULT_MIN_OFF,
     DEFAULT_MIN_ON,
@@ -53,6 +63,7 @@ from .decision import (
     ForecastPoint,
     Season,
     Snapshot,
+    circulation_demand,
     command_for,
     decide,
 )
@@ -61,6 +72,7 @@ from .units import default_options_c, state_to_celsius
 _LOGGER = logging.getLogger(__name__)
 
 _COMMAND_WAIT = timedelta(seconds=20)
+_CIRCULATION_MIN_ON = timedelta(minutes=10)
 
 
 class Reading:
@@ -83,6 +95,10 @@ class AirbendData:
         enabled: bool,
         fan_available: bool,
         forecast: tuple[ForecastPoint, ...] = (),
+        bedroom_co2: float | None = None,
+        circulation_on: bool = False,
+        circulation_reason: str = "Bedroom circulation is not set up.",
+        circulation_configured: bool = False,
     ) -> None:
         self.outdoor = outdoor
         self.attic = attic
@@ -91,6 +107,10 @@ class AirbendData:
         self.enabled = enabled
         self.fan_available = fan_available
         self.forecast = forecast
+        self.bedroom_co2 = bedroom_co2
+        self.circulation_on = circulation_on
+        self.circulation_reason = circulation_reason
+        self.circulation_configured = circulation_configured
 
 
 class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
@@ -115,6 +135,11 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         self._command_task: asyncio.Task[None] | None = None
         self._manual_mode_retry_at: datetime | None = None
         self.fan_error: str | None = None
+        self.circulation_enabled = True
+        self.circulation_error: str | None = None
+        self._circulation_on = False
+        self._circulation_since: datetime | None = None
+        self._circulation_task: asyncio.Task[None] | None = None
         self._forecast: tuple[ForecastPoint, ...] = ()
         self._forecast_at: datetime | None = None
 
@@ -178,6 +203,10 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
         elif self.enabled and self.control_ready and not fan_available:
             _LOGGER.warning("Fan %s is unavailable; Airbend left it alone", fan_id)
 
+        bedroom_co2, circulation_on, circulation_reason, configured = self._circulation(
+            options, stale, now
+        )
+
         return AirbendData(
             outdoor=outdoor,
             attic=attic,
@@ -186,6 +215,10 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
             enabled=self.enabled,
             fan_available=fan_available,
             forecast=self._forecast,
+            bedroom_co2=bedroom_co2,
+            circulation_on=circulation_on,
+            circulation_reason=circulation_reason,
+            circulation_configured=configured,
         )
 
     @callback
@@ -195,6 +228,44 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
         self.hass.async_create_task(self.async_request_refresh())
+
+    def set_circulation_enabled(self, enabled: bool) -> None:
+        self.circulation_enabled = enabled
+        self.hass.async_create_task(self.async_request_refresh())
+
+    def _circulation(
+        self,
+        options: dict[str, Any],
+        stale: timedelta,
+        now: datetime,
+    ) -> tuple[float | None, bool, str, bool]:
+        sensors = self._entity_list(options, CONF_CO2_SENSORS)
+        climate_id = options.get(CONF_CLIMATE)
+        if not sensors or not climate_id:
+            return None, False, "Bedroom circulation is not set up.", False
+        readings = self._co2_readings(sensors, stale)
+        peak = max(readings) if readings else None
+        hold = (
+            self._circulation_since is not None
+            and now - self._circulation_since < _CIRCULATION_MIN_ON
+        )
+        demand, reason = circulation_demand(
+            readings,
+            threshold=float(options.get(CONF_CO2_THRESHOLD, DEFAULT_CO2_THRESHOLD)),
+            hysteresis=float(options.get(CONF_CO2_HYSTERESIS, DEFAULT_CO2_HYSTERESIS)),
+            currently_on=self._circulation_on,
+            hold_for_minimum=hold,
+        )
+        if not self.circulation_enabled:
+            return peak, False, f"Paused. {reason}", True
+        if demand and not self._circulation_on:
+            self._circulation_since = now
+        if not demand:
+            self._circulation_since = None
+        self._circulation_on = demand
+        if self.control_ready:
+            self._schedule_circulation(demand)
+        return peak, demand, reason, True
 
     def _schedule_command(self, decision: Decision) -> None:
         if self._command_task is not None and not self._command_task.done():
@@ -218,12 +289,85 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
             return [configured]
         return list(configured)
 
+    def _co2_readings(self, entity_ids: list[str], stale_after: timedelta) -> list[float]:
+        readings: list[float] = []
+        now = dt_util.utcnow()
+        for entity_id in entity_ids:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in {STATE_UNAVAILABLE, STATE_UNKNOWN}:
+                continue
+            try:
+                age = now - state.last_updated
+            except TypeError:
+                age = timedelta(0)
+            if age > stale_after:
+                continue
+            try:
+                readings.append(float(state.state))
+            except (TypeError, ValueError):
+                continue
+        return readings
+
+    def _schedule_circulation(self, demand: bool) -> None:
+        if self._circulation_task is not None and not self._circulation_task.done():
+            return
+        self._circulation_task = self.hass.async_create_task(
+            self._async_safe_circulation(demand)
+        )
+
+    async def _async_safe_circulation(self, demand: bool) -> None:
+        self.circulation_error = None
+        try:
+            await self._async_command_circulation(demand)
+        except Exception as err:
+            _LOGGER.exception("Airbend could not set HVAC circulation")
+            self.circulation_error = str(err)
+        if self.data is not None:
+            self.async_set_updated_data(self.data)
+
+    async def _async_command_circulation(self, demand: bool) -> None:
+        options = self.entry.options
+        climate_id = options.get(CONF_CLIMATE)
+        if not climate_id:
+            return
+        state = self.hass.states.get(climate_id)
+        if state is None or state.state in {STATE_UNAVAILABLE, STATE_UNKNOWN}:
+            self.circulation_error = f"{climate_id} is unavailable"
+            return
+        modes = state.attributes.get("fan_modes") or []
+        circulate_name = str(options.get(CONF_CIRCULATE_MODE) or DEFAULT_CIRCULATE_MODE)
+        idle_name = str(options.get(CONF_IDLE_FAN_MODE) or DEFAULT_IDLE_FAN_MODE)
+        circulate = _matching_option(modes, circulate_name)
+        idle = _matching_option(modes, idle_name)
+        current = state.attributes.get("fan_mode")
+        if demand:
+            if circulate is None:
+                self.circulation_error = f"{climate_id} has no {circulate_name!r} fan mode"
+                return
+            target = circulate
+        else:
+            if current != circulate:
+                return
+            if idle is None:
+                self.circulation_error = f"{climate_id} has no {idle_name!r} fan mode"
+                return
+            target = idle
+        if current == target:
+            return
+        _LOGGER.info("Airbend set %s fan mode to %s", climate_id, target)
+        await self.hass.services.async_call(
+            "climate",
+            "set_fan_mode",
+            {"entity_id": climate_id, "fan_mode": target},
+            blocking=True,
+        )
+
     def watched_entities(self) -> list[str]:
         options = self.entry.options
         entities: list[str] = []
-        for key in (CONF_OUTDOOR_SENSORS, CONF_ATTIC_SENSORS, CONF_INDOOR_SENSORS):
+        for key in (CONF_OUTDOOR_SENSORS, CONF_ATTIC_SENSORS, CONF_INDOOR_SENSORS, CONF_CO2_SENSORS):
             entities.extend(self._entity_list(options, key))
-        for key in (CONF_FAN_TEMPERATURE, CONF_FAN, CONF_FAN_MODE, CONF_WEATHER):
+        for key in (CONF_FAN_TEMPERATURE, CONF_FAN, CONF_FAN_MODE, CONF_WEATHER, CONF_CLIMATE):
             if options.get(key):
                 entities.append(options[key])
         return entities

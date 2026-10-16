@@ -19,13 +19,25 @@ _AUTOMATIC = SwitchEntityDescription(
 )
 
 
+_CIRCULATION = SwitchEntityDescription(
+    key="circulation",
+    translation_key="circulation",
+    icon="mdi:air-purifier",
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: AirbendCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([AirbendAutomaticSwitch(coordinator)])
+    async_add_entities(
+        [
+            AirbendAutomaticSwitch(coordinator),
+            AirbendCirculationSwitch(coordinator),
+        ]
+    )
 
 
 class AirbendAutomaticSwitch(AirbendEntity, SwitchEntity, RestoreEntity):
@@ -55,4 +67,32 @@ class AirbendAutomaticSwitch(AirbendEntity, SwitchEntity, RestoreEntity):
     async def async_turn_off(self, **kwargs: object) -> None:
         self._attr_is_on = False
         self.coordinator.set_enabled(False)
+        self.async_write_ha_state()
+
+
+class AirbendCirculationSwitch(AirbendEntity, SwitchEntity, RestoreEntity):
+    """Pause bedroom CO2 circulation without pausing the attic fan."""
+
+    entity_description = _CIRCULATION
+
+    def __init__(self, coordinator: AirbendCoordinator) -> None:
+        super().__init__(coordinator, "circulation")
+        self._attr_is_on = True
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is not None:
+            self._attr_is_on = last.state == "on"
+            self.coordinator.circulation_enabled = self._attr_is_on
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_on(self, **kwargs: object) -> None:
+        self._attr_is_on = True
+        self.coordinator.set_circulation_enabled(True)
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: object) -> None:
+        self._attr_is_on = False
+        self.coordinator.set_circulation_enabled(False)
         self.async_write_ha_state()

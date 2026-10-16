@@ -9,7 +9,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import CONCENTRATION_PARTS_PER_MILLION, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -55,6 +55,8 @@ async def async_setup_entry(
             AirbendStatusSensor(coordinator),
             AirbendForecastSensor(coordinator, "forecast_high", max),
             AirbendForecastSensor(coordinator, "forecast_low", min),
+            AirbendBedroomCo2Sensor(coordinator),
+            AirbendCirculationStatusSensor(coordinator),
         ]
     )
 
@@ -121,6 +123,46 @@ class AirbendForecastSensor(AirbendEntity, SensorEntity):
         if not upcoming:
             return None
         return round(self._pick(upcoming), 2)
+
+
+class AirbendBedroomCo2Sensor(AirbendEntity, SensorEntity):
+    """Highest fresh bedroom CO2 reading."""
+
+    _attr_device_class = SensorDeviceClass.CO2
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = CONCENTRATION_PARTS_PER_MILLION
+    _attr_suggested_display_precision = 0
+    _attr_translation_key = "bedroom_co2"
+    _attr_icon = "mdi:molecule-co2"
+
+    def __init__(self, coordinator: AirbendCoordinator) -> None:
+        super().__init__(coordinator, "bedroom_co2")
+
+    @property
+    def native_value(self) -> float | None:
+        data = self.coordinator.data
+        if data is None:
+            return None
+        return data.bedroom_co2
+
+
+class AirbendCirculationStatusSensor(AirbendEntity, SensorEntity):
+    """Why the house blower is or is not circulating."""
+
+    _attr_translation_key = "circulation_status"
+    _attr_icon = "mdi:air-purifier"
+
+    def __init__(self, coordinator: AirbendCoordinator) -> None:
+        super().__init__(coordinator, "circulation_status")
+
+    @property
+    def native_value(self) -> str | None:
+        data = self.coordinator.data
+        if data is None:
+            return None
+        if self.coordinator.circulation_error:
+            return f"{self.coordinator.circulation_error} {data.circulation_reason}"
+        return data.circulation_reason
 
 
 class AirbendSeasonSensor(AirbendEntity, SensorEntity):

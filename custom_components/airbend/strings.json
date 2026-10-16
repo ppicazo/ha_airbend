@@ -12,7 +12,11 @@
           "fan_temperature": "Fan temperature sensor",
           "fan_mode": "Fan mode select",
           "manual_mode": "Mode to select before taking control",
-          "weather": "Hourly weather forecast"
+          "weather": "Hourly weather forecast",
+          "co2_sensors": "Bedroom CO2 sensors",
+          "climate": "HVAC thermostat",
+          "circulate_mode": "Fan mode when CO2 is high",
+          "idle_fan_mode": "Fan mode when CO2 is normal"
         }
       },
       "behavior": {
@@ -33,13 +37,16 @@
           "ice_dam_enabled": "Cool the roof deck when it could melt snow",
           "min_on_minutes": "Minimum minutes the fan stays on",
           "min_off_minutes": "Minimum minutes the fan stays off",
-          "stale_minutes": "Ignore sensor readings older than"
+          "stale_minutes": "Ignore sensor readings older than",
+          "co2_threshold": "Circulate when any bedroom reaches",
+          "co2_hysteresis": "Drop this far below the threshold before stopping"
         }
       }
     },
     "error": {
       "threshold_order": "Each speed step has to be warmer than the one below it, and the safety limit has to be the hottest.",
-      "ice_dam_order": "The ice-dam attic temperature has to be below the winter buffer limit, or the guard never gets a chance to run."
+      "ice_dam_order": "The ice-dam attic temperature has to be below the winter buffer limit, or the guard never gets a chance to run.",
+      "co2_hysteresis": "The CO2 drop has to be smaller than the threshold."
     }
   },
   "options": {
@@ -55,7 +62,11 @@
           "fan_temperature": "Fan temperature sensor",
           "fan_mode": "Fan mode select",
           "manual_mode": "Mode to select before taking control",
-          "weather": "Hourly weather forecast"
+          "weather": "Hourly weather forecast",
+          "co2_sensors": "Bedroom CO2 sensors",
+          "climate": "HVAC thermostat",
+          "circulate_mode": "Fan mode when CO2 is high",
+          "idle_fan_mode": "Fan mode when CO2 is normal"
         }
       },
       "behavior": {
@@ -76,13 +87,16 @@
           "ice_dam_enabled": "Cool the roof deck when it could melt snow",
           "min_on_minutes": "Minimum minutes the fan stays on",
           "min_off_minutes": "Minimum minutes the fan stays off",
-          "stale_minutes": "Ignore sensor readings older than"
+          "stale_minutes": "Ignore sensor readings older than",
+          "co2_threshold": "Circulate when any bedroom reaches",
+          "co2_hysteresis": "Drop this far below the threshold before stopping"
         }
       }
     },
     "error": {
       "threshold_order": "Each speed step has to be warmer than the one below it, and the safety limit has to be the hottest.",
-      "ice_dam_order": "The ice-dam attic temperature has to be below the winter buffer limit, or the guard never gets a chance to run."
+      "ice_dam_order": "The ice-dam attic temperature has to be below the winter buffer limit, or the guard never gets a chance to run.",
+      "co2_hysteresis": "The CO2 drop has to be smaller than the threshold."
     }
   },
   "entity": {
@@ -122,16 +136,28 @@
       },
       "forecast_low": {
         "name": "Forecast low"
+      },
+      "bedroom_co2": {
+        "name": "Bedroom CO2"
+      },
+      "circulation_status": {
+        "name": "Circulation status"
       }
     },
     "binary_sensor": {
       "ventilating": {
         "name": "Ventilating"
+      },
+      "circulating": {
+        "name": "Circulating"
       }
     },
     "switch": {
       "automatic": {
         "name": "Automatic control"
+      },
+      "circulation": {
+        "name": "CO2 circulation"
       }
     }
   }

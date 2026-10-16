@@ -26,6 +26,8 @@ The fan also stays at a speed for a minimum run (10 minutes) and minimum off tim
 
 Two-speed QuietCool fans expose Low and High. Airbend maps medium onto high. Fans with no presets get 33% / 66% / 100%.
 
+**Bedroom CO2** is separate from the attic fan. Pick the bedroom carbon-dioxide sensors and the house thermostat. If any bedroom reaches 600 ppm, Airbend sets the thermostat fan to `circulate`. It returns the fan to `auto` only after every bedroom is under 550 ppm, and only if the fan is still on `circulate`. The attic speed does not change. Use the **CO2 circulation** switch to pause this without pausing the attic fan. If your thermostat uses a different name than `circulate`, set that name in the options.
+
 ## Install
 
 Home Assistant 2025.1 or newer.

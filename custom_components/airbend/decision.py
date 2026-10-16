@@ -470,3 +470,36 @@ def _apply_cycle(
     if elapsed < settings.min_on:
         return applied
     return desired
+
+
+def circulation_demand(
+    readings_ppm: list[float],
+    *,
+    threshold: float,
+    hysteresis: float,
+    currently_on: bool,
+    hold_for_minimum: bool,
+) -> tuple[bool, str]:
+    """Decide whether the house blower should circulate.
+
+    Any bedroom at or above the threshold starts it. Every bedroom has to
+    fall by the hysteresis before it stops. This does not look at attic
+    temperature.
+    """
+
+    if not readings_ppm:
+        if currently_on and hold_for_minimum:
+            return True, "Holding circulation while bedroom CO2 is unavailable."
+        return False, "Bedroom CO2 is unavailable."
+
+    highest = max(readings_ppm)
+    if highest >= threshold:
+        return True, f"A bedroom reached {highest:.0f} ppm."
+    if currently_on and highest >= threshold - hysteresis:
+        return (
+            True,
+            f"Holding circulation until bedrooms fall below {threshold - hysteresis:.0f} ppm.",
+        )
+    if currently_on and hold_for_minimum:
+        return True, "Holding circulation so the blower is not short-cycled."
+    return False, f"Bedrooms are at {highest:.0f} ppm."

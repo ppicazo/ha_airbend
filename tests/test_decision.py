@@ -23,6 +23,7 @@ Season = decision.Season
 Snapshot = decision.Snapshot
 command_for = decision.command_for
 decide = decision.decide
+circulation_demand = decision.circulation_demand
 ForecastPoint = decision.ForecastPoint
 
 NOW = datetime(2026, 7, 1, 15, 0, tzinfo=timezone.utc)
@@ -301,3 +302,34 @@ def test_forecast_banks_warmth_faster_before_a_cold_night() -> None:
 
     assert decision.speed is FanSpeed.MEDIUM
     assert "cold night" in decision.reason
+
+
+def test_circulation_starts_at_600_and_holds_until_550() -> None:
+    started, start_reason = circulation_demand(
+        [580, 610],
+        threshold=600,
+        hysteresis=50,
+        currently_on=False,
+        hold_for_minimum=False,
+    )
+    holding, hold_reason = circulation_demand(
+        [560],
+        threshold=600,
+        hysteresis=50,
+        currently_on=True,
+        hold_for_minimum=False,
+    )
+    stopped, stop_reason = circulation_demand(
+        [540, 500],
+        threshold=600,
+        hysteresis=50,
+        currently_on=True,
+        hold_for_minimum=False,
+    )
+
+    assert started is True
+    assert "610" in start_reason
+    assert holding is True
+    assert "550" in hold_reason
+    assert stopped is False
+    assert "540" in stop_reason

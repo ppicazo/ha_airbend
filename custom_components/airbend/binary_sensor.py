@@ -22,13 +22,22 @@ _VENTILATING = BinarySensorEntityDescription(
 )
 
 
+_CIRCULATING = BinarySensorEntityDescription(
+    key="circulating",
+    translation_key="circulating",
+    icon="mdi:air-purifier",
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: AirbendCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([AirbendVentilatingSensor(coordinator)])
+    async_add_entities(
+        [AirbendVentilatingSensor(coordinator), AirbendCirculatingSensor(coordinator)]
+    )
 
 
 class AirbendVentilatingSensor(AirbendEntity, BinarySensorEntity):
@@ -45,3 +54,19 @@ class AirbendVentilatingSensor(AirbendEntity, BinarySensorEntity):
         if data is None:
             return None
         return data.enabled and data.decision.speed is not FanSpeed.OFF
+
+
+class AirbendCirculatingSensor(AirbendEntity, BinarySensorEntity):
+    """On when bedroom CO2 is asking the house blower to circulate."""
+
+    entity_description = _CIRCULATING
+
+    def __init__(self, coordinator: AirbendCoordinator) -> None:
+        super().__init__(coordinator, "circulating")
+
+    @property
+    def is_on(self) -> bool | None:
+        data = self.coordinator.data
+        if data is None:
+            return None
+        return data.circulation_on
