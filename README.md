@@ -1,12 +1,14 @@
 # Airbend
 
-Home Assistant controller for a QuietCool (or any preset/percentage) attic fan. It averages the outdoor, attic, and indoor temperature sensors you choose, then runs the fan only when outside air will actually help.
+Home Assistant controller for a QuietCool (or any preset/percentage) attic fan. It averages the outdoor, attic, and indoor temperature sensors you choose, then runs the fan only when outside air will actually help. It can also run the house blower when a bedroom gets stuffy.
 
 This integration does not talk to the fan over Bluetooth. Pair the fan with something like [QuietCool BLE](https://github.com/rwarner/ha-quietcool-ble) or the ESPHome QuietCool firmware first, then point Airbend at that fan entity.
 
 ## What it does
 
-**Summer** starts when the indoor average reaches the target indoor temperature (default 74°F) and stays active until the house falls by the hysteresis (default 2°F). Speed then follows the attic average, which includes the fan's own temperature sensor when you select it:
+**Averaging.** Outdoor, attic, and indoor temperatures are each the average of the sensors you select. The attic average includes the fan's own temperature sensor when you select it. If a sensor goes unavailable, Airbend keeps its last reading in the average until that reading is 30 minutes old. A short dropout does not make the average jump to whichever sensor stayed up. After 30 minutes with no new reading, that sensor is left out.
+
+**Summer** starts when the indoor average reaches the target indoor temperature (default 74°F) and stays active until the house falls by the hysteresis (default 2°F). Speed then follows the attic average:
 
 - Low at 80°F attic
 - Medium at 100°F, or sooner when outside air is at least 8°F cooler than the attic
@@ -48,11 +50,12 @@ Home Assistant 2025.1 or newer.
 
 ### Setup
 
-1. Select one or more outdoor, attic, and indoor temperature sensors. They need the `temperature` device class. Each group is averaged. A sensor that blips unavailable keeps its last reading until that reading is stale (default 30 minutes), so one dropout does not make the average jump to the remaining sensor.
+1. Select one or more outdoor, attic, and indoor temperature sensors. They need the `temperature` device class. Each group is averaged, and a sensor that drops out keeps its last reading for 30 minutes.
 2. Select the QuietCool fan.
 3. Select the fan's temperature sensor if you want it included in the attic average.
-4. Select the fan's mode entity (`Idle` / `Timer` / `TH`) and leave the manual mode as `Idle`. Airbend switches it to Idle so the fan's built-in thermostat does not fight these rules.
+4. Select the fan's mode entity and set **Mode to select before taking control** to the option that means manual. ESPHome QuietCool uses `Run` (Timer / Run / Smart). The BLE integration uses `Idle` (Idle / Timer / TH). Airbend switches to that mode so the fan's built-in thermostat does not fight these rules.
+5. For bedroom circulation, select the carbon-dioxide sensors and the house thermostat. The defaults match a thermostat whose fan modes are `Low` and `Auto low`. Change those names if yours differ, then turn off any older automation that was setting the same fan mode.
 
-The status sensor says why the fan is at its current speed. Automatic control is a switch, so you can pause Airbend without uninstalling it. While it is off, the fan is left where it is.
+The status sensor says why the fan is at its current speed. **Automatic control** pauses the attic fan, and **CO2 circulation** pauses the bedroom blower. Turning one off leaves that device where it is.
 
 Thresholds are in the integration's configure dialog and follow your unit system (°F or °C).
