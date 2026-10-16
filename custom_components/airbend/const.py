@@ -60,8 +60,8 @@ DEFAULT_STALE_MINUTES = 30
 DEFAULT_MANUAL_MODE = "Idle"
 DEFAULT_CO2_THRESHOLD = 600
 DEFAULT_CO2_HYSTERESIS = 50
-DEFAULT_CIRCULATE_MODE = "circulate"
-DEFAULT_IDLE_FAN_MODE = "auto"
+DEFAULT_CIRCULATE_MODE = "Low"
+DEFAULT_IDLE_FAN_MODE = "Auto low"
 DEFAULT_NAME = "Airbend"
 
 # Form ranges in °F. The config flow converts them to the user's unit.
