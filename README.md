@@ -9,7 +9,7 @@ This integration does not talk to the fan over Bluetooth. Pair the fan with some
 **Summer** starts when the indoor average reaches the target indoor temperature (default 74°F) and stays active until the house falls by the hysteresis (default 2°F). Speed then follows the attic average, which includes the fan's own temperature sensor when you select it:
 
 - Low at 80°F attic
-- Medium at 100°F
+- Medium at 100°F, or sooner when outside air is at least 8°F cooler than the attic
 - High at 110°F
 
 A house at 75°F with a 70°F target, an 85°F attic, and 77°F outside air runs on low. Below the low-speed temperature the fan still runs on low when the attic is warmer than the house and outside air is at least 5°F cooler. It stays off when the attic is already no warmer than the house, and when outside air can barely move the attic. At 75°F indoors, 79°F in the attic, and 78°F outside, the fan stays off: running it could only shave about 1°F, and the attic would still be warmer than the house.

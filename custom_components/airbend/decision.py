@@ -262,6 +262,12 @@ def _summer_speed(
             False,
         )
     if attic >= settings.summer_low_c:
+        if attic - outdoor >= _MEDIUM_BOOST_C:
+            return (
+                FanSpeed.MEDIUM,
+                "Summer: outside air is cool enough to use medium.",
+                False,
+            )
         return (
             FanSpeed.LOW,
             "Summer: the attic reached the low-speed temperature.",
@@ -276,6 +282,8 @@ def _summer_speed(
 
 # Warm the attic on medium once outside air is this much warmer.
 _WARM_MEDIUM_C = 15.0 * 5.0 / 9.0
+# In summer, step from low to medium when outside air is this much cooler than the attic.
+_MEDIUM_BOOST_C = 8.0 * 5.0 / 9.0
 # A later forecast this much colder than the current outdoor air is a cold night.
 _COLD_DROP_C = 10.0 * 5.0 / 9.0
 _HOT_LOOKAHEAD_H = 12.0

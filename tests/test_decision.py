@@ -23,6 +23,7 @@ Season = decision.Season
 Snapshot = decision.Snapshot
 command_for = decision.command_for
 decide = decision.decide
+ForecastPoint = decision.ForecastPoint
 
 NOW = datetime(2026, 7, 1, 15, 0, tzinfo=timezone.utc)
 
@@ -63,7 +64,7 @@ def snap(**overrides: object) -> Snapshot:
 
 
 def test_summer_uses_cooler_outside_air_and_steps_the_fan() -> None:
-    low = decide(snap(attic_c=33.0, outdoor_c=25.0, indoor_c=25.0), settings())
+    low = decide(snap(attic_c=33.0, outdoor_c=30.0, indoor_c=25.0), settings())
     medium = decide(snap(attic_c=39.0, outdoor_c=25.0, indoor_c=25.0), settings())
     high = decide(snap(attic_c=45.0, outdoor_c=30.0, indoor_c=25.0), settings())
 
@@ -131,7 +132,7 @@ def test_summer_stays_off_when_the_attic_is_not_warming_the_house() -> None:
 
 def test_indoor_hysteresis_holds_summer_until_the_house_actually_cools() -> None:
     held = decide(
-        snap(indoor_c=22.5, season=Season.SUMMER, attic_c=33.0, outdoor_c=24.0),
+        snap(indoor_c=22.5, season=Season.SUMMER, attic_c=33.0, outdoor_c=30.0),
         settings(),
     )
     released = decide(
@@ -236,3 +237,63 @@ def test_percentage_fan_when_there_are_no_presets() -> None:
     assert command.on is True
     assert command.preset_mode is None
     assert command.percentage == 33
+
+
+def test_summer_uses_medium_when_outside_air_is_clearly_cooler() -> None:
+    # 78.7°F house, 82.8°F attic, 73.9°F outside.
+    decision = decide(
+        snap(indoor_c=25.94, attic_c=28.22, outdoor_c=23.28),
+        settings(),
+    )
+
+    assert decision.season is Season.SUMMER
+    assert decision.speed is FanSpeed.MEDIUM
+    assert "medium" in decision.reason
+
+
+def test_forecast_flushes_the_attic_before_a_hot_afternoon() -> None:
+    # 68°F house, 75°F attic, 61°F outside, 88°F forecast in 6 hours.
+    decision = decide(
+        snap(
+            indoor_c=20.0,
+            attic_c=24.0,
+            outdoor_c=16.0,
+            forecast=(ForecastPoint(6.0, 31.0),),
+        ),
+        settings(),
+    )
+
+    assert decision.season is Season.WINTER
+    assert decision.speed is FanSpeed.LOW
+    assert "hot day" in decision.reason
+
+
+def test_forecast_does_not_dump_heat_before_a_cold_night() -> None:
+    decision = decide(
+        snap(
+            indoor_c=20.0,
+            attic_c=24.0,
+            outdoor_c=16.0,
+            forecast=(ForecastPoint(3.0, 4.0), ForecastPoint(10.0, 31.0)),
+        ),
+        settings(),
+    )
+
+    assert decision.speed is FanSpeed.OFF
+    assert "hot day" not in decision.reason
+
+
+def test_forecast_banks_warmth_faster_before_a_cold_night() -> None:
+    # 61°F house, 50°F attic, 58°F outside, 36°F tonight.
+    decision = decide(
+        snap(
+            indoor_c=16.0,
+            attic_c=10.0,
+            outdoor_c=14.5,
+            forecast=(ForecastPoint(8.0, 2.0),),
+        ),
+        settings(),
+    )
+
+    assert decision.speed is FanSpeed.MEDIUM
+    assert "cold night" in decision.reason
