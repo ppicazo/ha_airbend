@@ -208,6 +208,7 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
                 applied_at=self._applied_at,
                 now=now,
                 forecast=self._forecast,
+                heater_on=self._heater_on(options),
             ),
             settings,
         )
@@ -267,6 +268,15 @@ class AirbendCoordinator(DataUpdateCoordinator[AirbendData]):
     def set_circulation_enabled(self, enabled: bool) -> None:
         self.circulation_enabled = enabled
         self.hass.async_create_task(self.async_request_refresh())
+
+    def _heater_on(self, options: dict[str, Any]) -> bool:
+        climate_id = options.get(CONF_CLIMATE)
+        if not climate_id:
+            return False
+        state = self.hass.states.get(climate_id)
+        if state is None or state.state in {STATE_UNAVAILABLE, STATE_UNKNOWN}:
+            return False
+        return state.attributes.get("hvac_action") == "heating"
 
     def _detector_names(self, options: dict[str, Any]) -> list[str]:
         names: list[str] = []
