@@ -137,6 +137,27 @@ def test_summer_keeps_cooling_after_the_attic_drops_below_the_house() -> None:
     assert "still warm" in decision.reason
 
 
+def test_summer_stays_off_while_the_heater_is_on() -> None:
+    decision = decide(
+        snap(indoor_c=25.0, attic_c=40.0, outdoor_c=26.0, heater_on=True),
+        settings(),
+    )
+
+    assert decision.season is Season.SUMMER
+    assert decision.speed is FanSpeed.OFF
+    assert "heater is on" in decision.reason
+
+
+def test_safety_still_runs_while_the_heater_is_on() -> None:
+    decision = decide(
+        snap(indoor_c=25.0, attic_c=60.0, outdoor_c=26.0, heater_on=True),
+        settings(),
+    )
+
+    assert decision.speed is FanSpeed.HIGH
+    assert decision.safety_bypass
+
+
 def test_indoor_hysteresis_holds_summer_until_the_house_actually_cools() -> None:
     held = decide(
         snap(indoor_c=22.5, season=Season.SUMMER, attic_c=33.0, outdoor_c=30.0),
@@ -273,6 +294,22 @@ def test_forecast_flushes_the_attic_before_a_hot_afternoon() -> None:
     assert decision.season is Season.WINTER
     assert decision.speed is FanSpeed.LOW
     assert "hot day" in decision.reason
+
+
+def test_forecast_does_not_flush_while_the_heater_is_on() -> None:
+    decision = decide(
+        snap(
+            indoor_c=20.0,
+            attic_c=24.0,
+            outdoor_c=16.0,
+            heater_on=True,
+            forecast=(ForecastPoint(6.0, 31.0),),
+        ),
+        settings(),
+    )
+
+    assert decision.speed is FanSpeed.OFF
+    assert "hot day" not in decision.reason
 
 
 def test_forecast_does_not_dump_heat_before_a_cold_night() -> None:

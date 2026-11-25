@@ -84,6 +84,7 @@ class Snapshot:
     applied_at: datetime | None
     now: datetime
     forecast: tuple[ForecastPoint, ...] = ()
+    heater_on: bool = False
 
 
 @dataclass(frozen=True)
@@ -209,6 +210,13 @@ def _raw_speed(
             True,
         )
 
+    if snapshot.heater_on and season is Season.SUMMER:
+        return (
+            FanSpeed.OFF,
+            "The heater is on, so the attic fan is not trying to cool the house.",
+            False,
+        )
+
     if season is Season.SUMMER:
         base = _summer_speed(
             attic, outdoor, snapshot.indoor_c, outdoor_useful, settings
@@ -224,7 +232,14 @@ def _raw_speed(
 
     return _prefer_forecast(
         base,
-        _forecast_speed(attic, outdoor, season, settings, snapshot.forecast),
+        _forecast_speed(
+            attic,
+            outdoor,
+            season,
+            settings,
+            snapshot.forecast,
+            heater_on=snapshot.heater_on,
+        ),
     )
 
 
@@ -392,6 +407,7 @@ def _forecast_speed(
     season: Season,
     settings: ControlSettings,
     forecast: tuple[ForecastPoint, ...],
+    heater_on: bool = False,
 ) -> tuple[FanSpeed, str] | None:
     """Flush before a hot day, or bank warmth before a cold night."""
 
@@ -412,6 +428,7 @@ def _forecast_speed(
 
     if (
         hot_first
+        and not heater_on
         and hot is not None
         and attic - outdoor >= settings.min_delta_c
         and hot.temp_c - outdoor >= settings.min_delta_c
